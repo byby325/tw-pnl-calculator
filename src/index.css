@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+/*
+ * 字體打包進 bundle，不走 CDN —— APK 必須離線可用（ADR-0011）。
+ * 只收 latin 子集：中日韓字元這三套字型本來就沒有，會落到系統字，
+ * 收 cyrillic/greek 只是白白讓 APK 變大。
+ */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+/* 頁面標題是襯線斜體，所以要的是 italic 這支檔案。 */
+@font-face {
+  font-family: 'Source Serif 4 Variable';
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url('@fontsource-variable/source-serif-4/files/source-serif-4-latin-wght-italic.woff2') format('woff2-variations');
+}
+
+/*
+ * 設計系統沿用 lifelio：shadcn neutral 色盤、Inter 內文、JetBrains Mono 數字、
+ * Source Serif 4 斜體標題。灰階為主，只有一個品牌綠；不用發光與漸層。
+ */
+
+@theme inline {
+  /* 把 spacing 釘在 4px，p-N / gap-N 才會落在 4 的倍數上，不受 html 字級影響。 */
+  --spacing: 4px;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-subtle: hsl(var(--subtle));
+  --color-border: hsl(var(--border));
+  --color-input-border: hsl(var(--input-border));
+  --color-ring: hsl(var(--ring));
+  --color-brand: var(--brand);
+  /* 台股漲紅跌綠，和多數國家相反。刻意壓低彩度，維持沉穩。 */
+  --color-up: var(--up);
+  --color-down: var(--down);
+
+  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-serif: 'Source Serif 4 Variable', 'Source Serif 4', Georgia, serif;
+}
+
+/*
+ * 只做深色模式（ADR-0015）。色票仍是 lifelio 的 shadcn neutral，但邊框亮度拉高到
+ * 足以讓元件邊界被看見 —— 原本照搬的值量出來只有 1.3:1，WCAG 1.4.11 要求 3:1。
+ */
+:root {
+  color-scheme: dark;
+  --radius: 8px;
+
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 6% 9%;
+  --muted: 240 4% 16%;
+  --muted-foreground: 240 5% 68%;
+  --subtle: 240 5% 56%;
+  --border: 240 4% 30%;
+  --input-border: 240 4% 42%;
+  --ring: 240 5% 84%;
+
+  --brand: oklch(0.72 0.15 145);
+  --up: oklch(0.68 0.19 22);
+  --down: oklch(0.72 0.15 155);
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+/* 標題用襯線斜體，和一整片數字拉開層次。 */
+.page-title {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* 數字一律等寬，更新報價時欄位不會左右跳動。 */
+.font-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 手機上輸入框聚焦會被自動放大，鎖住 16px 避免版面亂跳。 */
+input, button, select {
+  font-family: inherit;
+  font-size: 16px;
+}
+
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/*
+ * 輸入框自己用品牌色邊框當焦點指示，不要再疊一圈系統外框 —— 兩個指示器同時出現
+ * 又不同色，看起來像出錯。其他元素仍沿用上面的 focus-visible。
+ */
+input:focus-visible {
+  outline: none;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

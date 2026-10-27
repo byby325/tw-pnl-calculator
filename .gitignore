@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+release/
+
+# Capacitor 同步產物：每次 cap sync 都會從 dist 重新產生，不進版控
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# 本機才有的 SDK 路徑
+android/local.properties
+
+# Gradle 建置快取
+android/.gradle/
+android/build/
+android/capacitor-cordova-android-plugins/build/
