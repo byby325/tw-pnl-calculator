@@ -9,7 +9,7 @@ import { calculate, isEtfCode, type FeeSettings, type Lot } from './lib/calc'
 import { fetchQuote, type Quote } from './lib/quote'
 import { clearRecent, loadRecent, pushRecent } from './lib/recent'
 import { loadFees, saveFees } from './lib/settings'
-import { checkForUpdate, type UpdateState } from './lib/updater'
+import { checkForUpdate, getRunningVersion, type UpdateState } from './lib/updater'
 import type { Symbol } from './lib/symbols'
 
 export default function App() {
@@ -24,6 +24,11 @@ export default function App() {
     const [recent, setRecent] = useState<Symbol[]>(() => loadRecent())
     const [fees, setFees] = useState<FeeSettings>(() => loadFees())
     const [update, setUpdate] = useState<UpdateState>({ status: 'idle' })
+    const [running, setRunning] = useState<string | null>(null)
+
+    useEffect(() => {
+        void getRunningVersion().then(setRunning)
+    }, [])
 
     // 開啟時在背景看看有沒有新版；失敗就安靜略過，不打擾正在計算的人。
     useEffect(() => {
@@ -138,6 +143,10 @@ export default function App() {
                               text-muted-foreground">
                     先搜尋一檔股票
                 </p>
+            )}
+
+            {running && (
+                <footer className="mt-auto pt-6 text-center text-xs text-subtle">版本 {running}</footer>
             )}
         </div>
     )

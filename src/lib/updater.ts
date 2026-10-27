@@ -86,3 +86,17 @@ export async function checkForUpdate(
         onState({ status: 'idle' })
     }
 }
+
+/**
+ * 目前實際在跑的網頁 bundle 版本。還沒套用過更新時回傳 APK 的 versionName。
+ * 網頁版沒有版本概念，回 null。
+ */
+export async function getRunningVersion(): Promise<string | null> {
+    if (!Capacitor.isNativePlatform()) return null
+    try {
+        const current = await CapacitorUpdater.current()
+        return current.bundle.id === 'builtin' ? current.native : current.bundle.version
+    } catch {
+        return null
+    }
+}
