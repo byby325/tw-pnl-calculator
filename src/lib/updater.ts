@@ -23,10 +23,15 @@ export type UpdateState =
     | { status: 'downloading' }
     | { status: 'ready'; version: string }
 
-/** 把 1.2.10 這種版本字串拆成數字比大小，避免字典序把 1.2.10 判成小於 1.2.9。 */
+/**
+ * 把 1.2.10 這種版本字串拆成數字比大小，避免字典序把 1.2.10 判成小於 1.2.9。
+ * 解析不出數字的段落當成 0，這樣即使拿到非版號字串也只會多更新一次就自我修正，
+ * 不會卡死在永遠不更新。
+ */
 function isNewer(candidate: string, current: string): boolean {
-    const a = candidate.split('.').map(Number)
-    const b = current.split('.').map(Number)
+    const toParts = (v: string) => v.split('.').map((seg) => Number.parseInt(seg, 10) || 0)
+    const a = toParts(candidate)
+    const b = toParts(current)
     for (let i = 0; i < Math.max(a.length, b.length); i++) {
         const x = a[i] ?? 0
         const y = b[i] ?? 0
@@ -62,7 +67,10 @@ export async function checkForUpdate(
         if (!manifest?.version || !manifest?.url) return
 
         const current = await CapacitorUpdater.current()
-        if (!isNewer(manifest.version, current.bundle.version)) return
+        // 還沒套用過任何更新時 bundle.id 會是 'builtin'，此時 bundle.version 不保證是
+        // 版號，要改用 native（APK 的 versionName）當比較基準。
+        const installed = current.bundle.id === 'builtin' ? current.native : current.bundle.version
+        if (!isNewer(manifest.version, installed)) return
 
         onState({ status: 'downloading' })
         const bundle = await CapacitorUpdater.download({
