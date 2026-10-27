@@ -6,7 +6,7 @@ status: accepted
 
 曾考慮只用收盤價：證交所 openapi 的 `STOCK_DAY_ALL` 一個 request 就能拿到全部上市股票（實測 320 KB），進記憶體後查詢是查表，不會被 rate limit，而且課堂 demo 幾乎一定落在台股交易時段（平日 09:00–13:30）之外，即時報價在 demo 當下也不會真的即時。但仍決定做即時，盤後才退回收盤價。
 
-代價是多一條髒路：證交所 MIS（`mis.twse.com.tw/stock/api/getStockInfo.jsp`）必須帶 `Referer: https://mis.twse.com.tw/stock/index.jsp` 才會回應，而且要先知道一檔是上市還是上櫃才能組出 `ex_ch` 參數；它在非交易時段的回應也不穩定，需要自己判斷何時該退回收盤價。
+代價是多一條髒路：證交所 MIS（`mis.twse.com.tw/stock/api/getStockInfo.jsp`）沒有公開文件，不在證交所 OpenAPI 的端點清單裡，是它自家盤中行情網頁在用的內部介面；要先知道一檔是上市還是上櫃才能組出 `ex_ch` 參數，非交易時段的回應也不穩定，需要自己判斷何時該退回收盤價。
 
 收盤資料來源同時還有兩個用途，所以無論如何都要接：它是即時失敗時的 fallback，也是股票代號解析的字典 —— `STOCK_DAY_ALL` 與櫃買中心的對應清單裡本來就有全部代號與名稱，可以直接支援「打 2330 或打台積電都找得到」，也剛好提供組 `ex_ch` 需要的上市／上櫃別。
 
@@ -20,3 +20,13 @@ status: accepted
 所以 MIS 反而是最新鮮的來源，而且它的 `y` 欄位本身就是上一交易日收盤，fallback 不必另外跑一趟。收盤端點因此降級為第二層 fallback（MIS 整個失效時才用，例如假日），代號字典的用途不受影響，仍然在建置時從這兩個端點產出。
 
 另外兩個要注意的點：`z` 在尚未成交時是空字串或 `-`，要退回 `y`（lifelio `priceFetcher.ts` 同樣這樣處理）；股票代號不一定是純數字，主動式 ETF 會出現 `00400A` 這種帶英文字母的代號，驗證時不能限定數字。
+
+## 對 Referer 的更正（2026-10-27）
+
+本文件與 ADR-0005、0011 原本都寫「MIS 必須帶 `Referer` 才會回應」。那是從 lifelio `priceFetcher.ts` 的註解接收下來當成事實，沒有自己驗證。實測從伺服器端不帶任何 `Referer` 直接打，MIS 一樣正常回應；而且程式碼裡一直在送的那個 `https://mis.twse.com.tw/stock/index.jsp`，現在回 404，該頁面已不存在。
+
+這不影響任何決策：零後端成立的理由是 CORS —— 瀏覽器跨網域打這三個端點全部 `TypeError: Failed to fetch`，伺服器端 curl 都回 200 且回應不含 `Access-Control-Allow-Origin`。CORS 一條就足夠。
+
+反方向也不宜斷言：這只是一次伺服器端的測試，不足以證明 MIS 在任何情境下都不看 `Referer`。該 header 保留著當低成本的保險即可，但不應被描述為必要條件。
+
+另外記下這條來源的真正風險：MIS 不在證交所 OpenAPI 的 143 個端點之中，沒有文件也沒有服務條款，格式隨時可能改變或被擋，不會有預告。它一旦失效，app 就只剩計算機功能。

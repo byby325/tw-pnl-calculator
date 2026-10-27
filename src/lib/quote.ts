@@ -13,9 +13,9 @@ export interface Quote {
 }
 
 /**
- * 瀏覽器既擋 CORS 也不准 JS 設定 Referer，而 MIS 沒有 Referer 就不回應。
- * 開發時走 vite.config.ts 的 dev proxy，打包成 APK 後由 CapacitorHttp 轉給原生層
- * 直接打，原生 HTTP 沒有 CORS 也能自由設 header（ADR-0011）。
+ * 證交所不回 CORS header，所以瀏覽器打不到。開發時走 vite.config.ts 的 dev proxy
+ * 代打，打包成 APK 後由 CapacitorHttp 轉給原生層直接打，原生 HTTP 沒有 CORS
+ * 這個概念（ADR-0011）。
  */
 const MIS_BASE = import.meta.env.DEV ? '/mis' : 'https://mis.twse.com.tw'
 
@@ -53,7 +53,8 @@ export async function fetchQuotes(
         signal,
         headers: {
             Accept: 'application/json',
-            // dev proxy 會覆寫掉，APK 裡走原生層時這行才真的送出去。
+            // 實測 MIS 不帶 Referer 也會回應，留著只是低成本的保險（見 ADR-0010 文末的更正）。
+            // 瀏覽器會忽略這個 header，只有走原生層時才真的送出去。
             Referer: 'https://mis.twse.com.tw/stock/index.jsp',
         },
     })

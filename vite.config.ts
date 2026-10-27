@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: { outDir: 'dist' },
   server: {
-    // 瀏覽器既擋 CORS 也不准 JS 設定 Referer，所以 npm run dev 時打不到 MIS。
+    // 證交所不回 CORS header，所以 npm run dev 時瀏覽器直接打會失敗。
     // 開發階段改由 dev server 代打，正式 APK 走 CapacitorHttp 的原生層（ADR-0011）。
     proxy: {
       '/mis': {
