@@ -6,28 +6,26 @@ import { ChevronDownIcon } from './icons'
 
 interface Props {
     calc: PortfolioCalculation
+    /** 報價的資料時間，取自證交所回應；非交易時段可能是上一個交易日的收盤時間。 */
+    quotedAt: string | null
+    /** 這份結果算出來之後，輸入又被改過了。 */
+    stale: boolean
 }
 
-export function PortfolioSummary({ calc }: Props) {
+export function PortfolioSummary({ calc, quotedAt, stale }: Props) {
     const [open, setOpen] = useState(false)
-
-    if (calc.fundedCount === 0) {
-        return (
-            <section className="rounded-lg border border-dashed border-border px-4 py-6 text-center
-                                text-sm text-muted-foreground">
-                填入股數與買進價就會算出組合總盈虧
-            </section>
-        )
-    }
 
     // 台股漲紅跌綠，和多數國家相反。
     const tone = calc.pnl > 0 ? 'text-up' : calc.pnl < 0 ? 'text-down' : 'text-foreground'
 
     return (
-        <section className="overflow-hidden rounded-lg border border-border bg-card">
+        <section
+            className={`overflow-hidden rounded-lg border bg-card transition-opacity duration-200
+                        ${stale ? 'border-dashed border-border opacity-50' : 'border-border'}`}
+        >
             <div className="px-4 pt-4">
                 <p className="text-xs text-muted-foreground">
-                    組合總盈虧　{calc.fundedCount} 檔
+                    {stale ? '輸入已變更，請重新計算' : `組合總盈虧　${calc.fundedCount} 檔`}
                 </p>
                 <p className={`font-num mt-1 text-4xl font-semibold ${tone}`}>
                     {formatSigned(calc.pnl, formatMoney)}
@@ -39,6 +37,7 @@ export function PortfolioSummary({ calc }: Props) {
                     {calc.hasAllQuotes
                         ? '已扣除每一筆的買賣手續費與證交稅'
                         : '有標的尚未取得報價，總計並不完整'}
+                    {quotedAt && `　·　報價 ${quotedAt}`}
                 </p>
             </div>
 

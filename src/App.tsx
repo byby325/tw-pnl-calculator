@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FeeSettingsBar } from './components/FeeSettingsBar'
 import { newLot, type LotInput } from './components/LotEditor'
 import { PortfolioSummary } from './components/PortfolioSummary'
 import { PositionCard } from './components/PositionCard'
 import { SymbolSearch } from './components/SymbolSearch'
-import { calculatePortfolio, type FeeSettings, type Position } from './lib/calc'
+import {
+    calculatePortfolio, type FeeSettings, type PortfolioCalculation, type Position,
+} from './lib/calc'
 import { fetchQuotes, type Quote } from './lib/quote'
 import { loadPositions, savePositions, type HeldPosition } from './lib/positions'
 import { loadFees, saveFees } from './lib/settings'
@@ -49,57 +51,64 @@ function toCalc(position: UiPosition): Position {
     return { id: held.id, code: held.code, name: held.name, lots: held.lots }
 }
 
+/** 輸入的指紋。變了就代表上次算出來的結果已經不對應現在的輸入。 */
+function fingerprint(positions: UiPosition[], fees: FeeSettings): string {
+    return JSON.stringify([
+        positions.map((p) => [p.code, p.lots.map((l) => [l.shares, l.price])]),
+        fees.discount,
+        fees.minimumFee,
+    ])
+}
+
 export default function App() {
     const [positions, setPositions] = useState<UiPosition[]>(() => loadPositions().map(toUi))
+    const [fees, setFees] = useState<FeeSettings>(() => loadFees())
     const [quotes, setQuotes] = useState<Map<string, Quote>>(new Map())
-    const [loading, setLoading] = useState(false)
+
+    /** 上次按下計算時的結果，連同當時的輸入指紋與報價時間。 */
+    const [result, setResult] = useState<PortfolioCalculation | null>(null)
+    const [resultKey, setResultKey] = useState<string | null>(null)
+    const [quotedAt, setQuotedAt] = useState<string | null>(null)
+
+    const [calculating, setCalculating] = useState(false)
+    const [loadingQuotes, setLoadingQuotes] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [reloadToken, setReloadToken] = useState(0)
     const [notice, setNotice] = useState<string | null>(null)
 
-    const [fees, setFees] = useState<FeeSettings>(() => loadFees())
     const [update, setUpdate] = useState<UpdateState>({ status: 'idle' })
     const [running, setRunning] = useState<string | null>(null)
+    const resultRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         void checkForUpdate(setUpdate)
         void getRunningVersion().then(setRunning)
     }, [])
 
-    /** 以代號清單當依賴，這樣只有「加入或移除標的」才會重新查價，改數量不會。 */
+    /** 以代號清單當依賴，只有加入或移除標的才重新查價，改數量不會。 */
     const codesKey = positions.map((p) => `${p.market}_${p.code}`).join('|')
 
+    // 加入標的時先抓一次報價，讓卡片上立刻看得到現價；這不會算盈虧，
+    // 盈虧一律等使用者按下計算（ADR-0018）。
     useEffect(() => {
         const targets = positions.map((p) => ({ code: p.code, market: p.market }))
         if (targets.length === 0) {
             setQuotes(new Map())
-            setError(null)
-            setLoading(false)
             return
         }
 
         let cancelled = false
         const controller = new AbortController()
-        setLoading(true)
-        setError(null)
+        setLoadingQuotes(true)
 
-        // 證交所 MIS 的 ex_ch 可以串接多檔，所以不論幾檔都只發一個請求。
         fetchQuotes(targets, controller.signal)
             .then((next) => {
-                if (cancelled) return
-                setQuotes(next)
-                const missing = targets.filter((t) => !next.has(t.code))
-                if (missing.length > 0) {
-                    setError(`查不到 ${missing.map((m) => m.code).join('、')} 的報價`)
-                }
+                if (!cancelled) setQuotes(next)
             })
-            .catch((e: unknown) => {
-                if (cancelled) return
-                setQuotes(new Map())
-                setError(e instanceof Error ? e.message : '取得報價失敗')
+            .catch(() => {
+                // 這裡失敗只是卡片上看不到現價，按下計算時會再試一次並回報錯誤。
             })
             .finally(() => {
-                if (!cancelled) setLoading(false)
+                if (!cancelled) setLoadingQuotes(false)
             })
 
         return () => {
@@ -107,7 +116,7 @@ export default function App() {
             controller.abort()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [codesKey, reloadToken])
+    }, [codesKey])
 
     const persist = useCallback((next: UiPosition[]) => {
         setPositions(next)
@@ -125,10 +134,46 @@ export default function App() {
         persist([...positions, { id: crypto.randomUUID(), ...symbol, lots: [newLot()] }])
     }
 
-    const calc = useMemo(() => {
-        const prices = new Map([...quotes].map(([code, q]) => [code, q.price]))
-        return calculatePortfolio(positions.map(toCalc), prices, fees)
-    }, [positions, quotes, fees])
+    /** 不需要報價就算得出來的部分，隨輸入即時更新，用來顯示每檔的股數與均價。 */
+    const live = useMemo(
+        () => calculatePortfolio(positions.map(toCalc), new Map(), fees),
+        [positions, fees],
+    )
+
+    const inputKey = fingerprint(positions, fees)
+    const stale = result != null && inputKey !== resultKey
+    const canCalculate = live.fundedCount > 0 && !calculating
+
+    /** 重新抓一次報價再計算，所以按下去拿到的一定是當下的價，不是進場時查的。 */
+    async function calculate() {
+        setCalculating(true)
+        setError(null)
+        setNotice(null)
+
+        try {
+            const targets = positions.map((p) => ({ code: p.code, market: p.market }))
+            const fresh = await fetchQuotes(targets)
+            setQuotes(fresh)
+
+            const prices = new Map([...fresh].map(([code, q]) => [code, q.price]))
+            setResult(calculatePortfolio(positions.map(toCalc), prices, fees))
+            setResultKey(inputKey)
+            setQuotedAt([...fresh.values()][0]?.at || null)
+
+            const missing = targets.filter((t) => !fresh.has(t.code))
+            if (missing.length > 0) {
+                setError(`查不到 ${missing.map((m) => m.code).join('、')} 的報價，總計不含這幾檔`)
+            }
+
+            requestAnimationFrame(() =>
+                resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+            )
+        } catch (e) {
+            setError(e instanceof Error ? e.message : '取得報價失敗')
+        } finally {
+            setCalculating(false)
+        }
+    }
 
     return (
         <div className="mx-auto flex min-h-full max-w-xl flex-col gap-4 px-4 pb-16 pt-8">
@@ -153,20 +198,6 @@ export default function App() {
                 </p>
             )}
 
-            {error && !loading && (
-                <div className="rounded-lg border border-border bg-card px-4 py-3">
-                    <p className="text-sm text-up">{error}</p>
-                    <button
-                        type="button"
-                        onClick={() => setReloadToken((n) => n + 1)}
-                        className="mt-1.5 cursor-pointer text-sm text-muted-foreground underline
-                                   underline-offset-4 transition-colors duration-200 hover:text-foreground"
-                    >
-                        重新查詢
-                    </button>
-                </div>
-            )}
-
             {positions.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border px-4 py-10 text-center
                               text-sm text-muted-foreground">
@@ -174,8 +205,6 @@ export default function App() {
                 </p>
             ) : (
                 <>
-                    <PortfolioSummary calc={calc} />
-
                     <div className="space-y-3">
                         {positions.map((position) => (
                             <PositionCard
@@ -184,8 +213,10 @@ export default function App() {
                                 name={position.name}
                                 lots={position.lots}
                                 quote={quotes.get(position.code) ?? null}
-                                loading={loading}
-                                calc={calc.positions.find((c) => c.id === position.id)!}
+                                loading={loadingQuotes}
+                                live={live.positions.find((c) => c.id === position.id)!}
+                                result={result?.positions.find((c) => c.id === position.id) ?? null}
+                                stale={stale}
                                 onLotsChange={(lots) =>
                                     persist(positions.map((p) => (p.id === position.id ? { ...p, lots } : p)))
                                 }
@@ -195,6 +226,33 @@ export default function App() {
                     </div>
 
                     <FeeSettingsBar fees={fees} onChange={(next) => setFees(saveFees(next))} />
+
+                    <button
+                        type="button"
+                        onClick={() => void calculate()}
+                        disabled={!canCalculate}
+                        className="cursor-pointer rounded-lg bg-brand px-4 py-4 text-base font-medium
+                                   text-background transition-opacity duration-200 hover:opacity-90
+                                   disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        {calculating ? '計算中…' : stale ? '重新計算' : '計算組合總盈虧'}
+                    </button>
+
+                    {live.fundedCount === 0 && (
+                        <p className="text-center text-xs text-subtle">填入股數與買進價才能計算</p>
+                    )}
+
+                    {error && (
+                        <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-up">
+                            {error}
+                        </p>
+                    )}
+
+                    <div ref={resultRef}>
+                        {result && (
+                            <PortfolioSummary calc={result} quotedAt={quotedAt} stale={stale} />
+                        )}
+                    </div>
                 </>
             )}
 
