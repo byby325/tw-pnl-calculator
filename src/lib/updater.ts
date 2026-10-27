@@ -28,7 +28,7 @@ export type UpdateState =
  * 解析不出數字的段落當成 0，這樣即使拿到非版號字串也只會多更新一次就自我修正，
  * 不會卡死在永遠不更新。
  */
-function isNewer(candidate: string, current: string): boolean {
+export function isNewer(candidate: string, current: string): boolean {
     const toParts = (v: string) => v.split('.').map((seg) => Number.parseInt(seg, 10) || 0)
     const a = toParts(candidate)
     const b = toParts(current)
