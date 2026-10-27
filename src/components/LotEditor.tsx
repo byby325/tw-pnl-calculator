@@ -25,6 +25,10 @@ function withThousands(raw: string): string {
     return decimals.length > 0 ? `${grouped}.${decimals.join('')}` : grouped
 }
 
+/**
+ * 一檔標的的買進批次清單。每一列都是一張獨立的委託單，手續費也是各自計算
+ * （見 lib/calc.ts），所以分幾列輸入會影響算出來的費用。
+ */
 export function LotEditor({ lots, onChange }: Props) {
     const sharesInputs = useRef(new Map<string, HTMLInputElement>())
     const [focusId, setFocusId] = useState<string | null>(null)
@@ -49,85 +53,79 @@ export function LotEditor({ lots, onChange }: Props) {
     const canRemove = lots.length > 1
 
     return (
-        <section>
-            <h2 className="mb-2 text-xs text-muted-foreground">買進批次　分批買就多加幾列</h2>
-
-            <div className="overflow-hidden rounded-lg border border-border bg-card">
-                {/* 可見的欄位標籤：填值之後 placeholder 會消失，只靠它當標籤是不夠的。 */}
-                <div className="flex gap-3 border-b border-border px-3 py-2 text-xs text-subtle">
-                    <span className="flex-1 pr-7 text-right">股數</span>
-                    <span className="flex-1 pr-7 text-right">買進價</span>
-                    {canRemove && <span className="w-11 shrink-0" aria-hidden />}
-                </div>
-
-                <div className="divide-y divide-border">
-                    {lots.map((lot, index) => {
-                        const shares = Number.parseFloat(lot.shares)
-                        const price = Number.parseFloat(lot.price)
-                        const subtotal =
-                            Number.isFinite(shares) && Number.isFinite(price) && shares > 0 && price > 0
-                                ? shares * price
-                                : null
-
-                        return (
-                            <div key={lot.id} className="px-3 py-2">
-                                <div className="flex items-center gap-3">
-                                    <NumericField
-                                        value={lot.shares}
-                                        onChange={(v) => update(lot.id, { shares: v })}
-                                        label={`第 ${index + 1} 列股數`}
-                                        suffix="股"
-                                        inputRef={(el) => {
-                                            if (el) sharesInputs.current.set(lot.id, el)
-                                            else sharesInputs.current.delete(lot.id)
-                                        }}
-                                    />
-                                    <NumericField
-                                        value={lot.price}
-                                        onChange={(v) => update(lot.id, { price: v })}
-                                        label={`第 ${index + 1} 列買進價`}
-                                        suffix="元"
-                                    />
-                                    {canRemove && (
-                                        <button
-                                            type="button"
-                                            onClick={() => onChange(lots.filter((l) => l.id !== lot.id))}
-                                            aria-label={`刪除第 ${index + 1} 列批次`}
-                                            className="flex size-11 shrink-0 cursor-pointer items-center justify-center
-                                                       rounded-lg text-subtle transition-colors duration-200
-                                                       hover:bg-muted hover:text-foreground"
-                                        >
-                                            <TrashIcon className="size-4" />
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/*
-                                  * 小計只在兩欄都填好才出現，但這一行永遠佔著固定高度，
-                                  * 不然填到一半時整張卡片會上下跳。
-                                  */}
-                                <p
-                                    className={`font-num mt-0.5 h-4 text-right text-xs leading-4 text-subtle ${canRemove ? 'pr-14' : 'pr-7'}`}
-                                >
-                                    {subtotal != null && `小計 ${formatMoney(subtotal)} 元`}
-                                </p>
-                            </div>
-                        )
-                    })}
-                </div>
-
-                <button
-                    type="button"
-                    onClick={addLot}
-                    className="flex w-full cursor-pointer items-center justify-center gap-2 border-t border-border
-                               py-3 text-sm text-muted-foreground transition-colors duration-200
-                               hover:bg-muted hover:text-foreground"
-                >
-                    <PlusIcon className="size-4" />
-                    新增批次
-                </button>
+        <div>
+            {/* 可見的欄位標籤：填值之後 placeholder 會消失，只靠它當標籤是不夠的。 */}
+            <div className="flex gap-2 pb-1.5 text-xs text-subtle">
+                <span className="flex-1 pr-7 text-right">股數</span>
+                <span className="flex-1 pr-7 text-right">買進價</span>
+                {canRemove && <span className="w-9 shrink-0" aria-hidden />}
             </div>
-        </section>
+
+            <div className="space-y-2">
+                {lots.map((lot, index) => {
+                    const shares = Number.parseFloat(lot.shares)
+                    const price = Number.parseFloat(lot.price)
+                    const subtotal =
+                        Number.isFinite(shares) && Number.isFinite(price) && shares > 0 && price > 0
+                            ? shares * price
+                            : null
+
+                    return (
+                        <div key={lot.id}>
+                            <div className="flex items-center gap-2">
+                                <NumericField
+                                    value={lot.shares}
+                                    onChange={(v) => update(lot.id, { shares: v })}
+                                    label={`第 ${index + 1} 筆股數`}
+                                    suffix="股"
+                                    inputRef={(el) => {
+                                        if (el) sharesInputs.current.set(lot.id, el)
+                                        else sharesInputs.current.delete(lot.id)
+                                    }}
+                                />
+                                <NumericField
+                                    value={lot.price}
+                                    onChange={(v) => update(lot.id, { price: v })}
+                                    label={`第 ${index + 1} 筆買進價`}
+                                    suffix="元"
+                                />
+                                {canRemove && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onChange(lots.filter((l) => l.id !== lot.id))}
+                                        aria-label={`刪除第 ${index + 1} 筆`}
+                                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center
+                                                   rounded-lg text-subtle transition-colors duration-200
+                                                   hover:bg-muted hover:text-foreground"
+                                    >
+                                        <TrashIcon className="size-3.5" />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* 這一行永遠佔固定高度，不然填到一半時版面會上下跳。 */}
+                            <p
+                                className={`font-num mt-0.5 h-4 text-right text-xs leading-4 text-subtle
+                                            ${canRemove ? 'pr-11' : 'pr-7'}`}
+                            >
+                                {subtotal != null && `${formatMoney(subtotal)} 元`}
+                            </p>
+                        </div>
+                    )
+                })}
+            </div>
+
+            <button
+                type="button"
+                onClick={addLot}
+                className="mt-1 flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg
+                           border border-dashed border-border py-2 text-xs text-muted-foreground
+                           transition-colors duration-200 hover:border-brand hover:text-foreground"
+            >
+                <PlusIcon className="size-3.5" />
+                再買一筆
+            </button>
+        </div>
     )
 }
 
@@ -153,9 +151,7 @@ function NumericField({ value, onChange, label, suffix, inputRef }: NumericField
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))}
-                // 靜止狀態就要有看得見的邊框：觸控裝置沒有 hover，原本的 border-transparent
-                // 在手機上等於沒有欄位邊界。input-border 的亮度是對著 WCAG 1.4.11 的 3:1 設的。
-                className="font-num w-full rounded-lg border border-input-border bg-background py-2.5 pl-2 pr-7
+                className="font-num w-full rounded-lg border border-input-border bg-background py-2 pl-2 pr-7
                            text-right text-foreground transition-colors duration-200
                            focus:border-brand focus:ring-1 focus:ring-brand"
             />

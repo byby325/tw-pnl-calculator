@@ -65,6 +65,10 @@ function brokerFee(amount: number, fees: FeeSettings): number {
  * 交易成本採「現在全部賣掉」的來回成本：買進時已經付掉的手續費，加上假設此刻賣出
  * 要付的手續費與證交稅。只扣買進手續費會讓數字看起來比實際好。
  *
+ * 買進手續費逐筆計算 —— 每一筆買進都是一張獨立的委託單，各自適用最低收費。把同一
+ * 檔的批次加總後才算費用，會讓小額批次的最低收費被吃掉。賣出則假設整個部位一次賣
+ * 出，算一筆委託。
+ *
  * 報價為 null（還沒查到）時市值、盈虧、賣出成本都是 0，但買進成本仍然算得出來。
  */
 export function calculate(
@@ -81,7 +85,7 @@ export function calculate(
 
     const marketValue = quotePrice != null ? quotePrice * totalShares : 0
 
-    const buyFee = brokerFee(totalCost, fees)
+    const buyFee = usable.reduce((sum, lot) => sum + brokerFee(lot.shares * lot.price, fees), 0)
     const sellFee = brokerFee(marketValue, fees)
     const tax = Math.round(marketValue * (isEtf ? TAX_RATE_ETF : TAX_RATE_STOCK))
 
@@ -115,4 +119,82 @@ export function formatSigned(n: number, format: (n: number) => string): string {
 
 export function formatPercent(rate: number): string {
     return `${(rate * 100).toFixed(2)}%`
+}
+
+/** 一檔標的的持倉：一個股票代號加上它的所有買進批次。 */
+export interface Position {
+    id: string
+    code: string
+    name: string
+    lots: Lot[]
+}
+
+/** 單一持倉的計算結果，附帶它是哪一檔。 */
+export interface PositionCalculation extends Calculation {
+    id: string
+    code: string
+    name: string
+    /** 該檔的報價；還沒查到時是 null。 */
+    quotePrice: number | null
+}
+
+export interface PortfolioCalculation {
+    positions: PositionCalculation[]
+    /** 有填入可用批次的持倉數量。 */
+    fundedCount: number
+    /** 這些持倉是否全都已經取得報價；只要有一檔沒有，總計就不完整。 */
+    hasAllQuotes: boolean
+    totalCost: number
+    marketValue: number
+    grossPnl: number
+    tradingCost: number
+    pnl: number
+    returnRate: number
+}
+
+/**
+ * 計算整個組合。
+ *
+ * 關鍵在於每一檔都各自跑一次 `calculate` 再加總，而不是把總成本丟進同一個公式。
+ * 券商手續費的最低收費是「每筆交易」計算的，買五檔就是五筆，各自適用最低收費；
+ * 用組合總額去算會把小部位的手續費嚴重低估。證交稅率也要逐檔判斷是不是 ETF。
+ *
+ * 報價以代號查表帶入，查不到的那一檔只算得出成本，不計入市值與盈虧。
+ */
+export function calculatePortfolio(
+    positions: Position[],
+    quotePrices: Map<string, number>,
+    fees: FeeSettings,
+): PortfolioCalculation {
+    const results = positions.map<PositionCalculation>((position) => {
+        const quotePrice = quotePrices.get(position.code) ?? null
+        return {
+            id: position.id,
+            code: position.code,
+            name: position.name,
+            quotePrice,
+            ...calculate(position.lots, quotePrice, fees, isEtfCode(position.code)),
+        }
+    })
+
+    const funded = results.filter((r) => r.totalShares > 0)
+    const sum = (pick: (r: PositionCalculation) => number) =>
+        funded.reduce((total, r) => total + pick(r), 0)
+
+    const totalCost = sum((r) => r.totalCost)
+    const tradingCost = sum((r) => r.tradingCost)
+    const pnl = sum((r) => r.pnl)
+    const invested = totalCost + sum((r) => r.buyFee)
+
+    return {
+        positions: results,
+        fundedCount: funded.length,
+        hasAllQuotes: funded.length > 0 && funded.every((r) => r.quotePrice != null),
+        totalCost,
+        marketValue: sum((r) => r.marketValue),
+        grossPnl: sum((r) => r.grossPnl),
+        tradingCost,
+        pnl,
+        returnRate: invested > 0 ? pnl / invested : 0,
+    }
 }
